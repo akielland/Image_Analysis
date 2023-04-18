@@ -1,0 +1,5 @@
+Host uio-ml6
+   Hostname = ml6.hpc.uio.no
+   User = kielland
+   ProxyJump = kielland@login.ifi.uio.no
+
