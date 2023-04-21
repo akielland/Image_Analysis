@@ -19,8 +19,6 @@ class ImageCaptionModel(nn.Module):
         self.num_rnn_layers = config['num_rnn_layers']
         self.cell_type = config['cellType']
 
-        self.batch_size = modelParam['batch_size']
-
         # Create the network layers
         self.embedding_layer = nn.Embedding(self.vocabulary_size, self.embedding_size)
         # TODO: The output layer (final layer) is a linear layer. What should be the size (dimensions) of its output?
@@ -67,14 +65,18 @@ class ImageCaptionModel(nn.Module):
         # HINT: For task 4, you might need to do self.input_layer(torch.transpose(cnn_features, 1, 2))
         processed_cnn_features = self.input_layer(cnn_features)
 
+        batch_size = cnn_features.size(0)
+
         if current_hidden_state is None:
             # TODO: Initialize initial_hidden_state with correct dimensions depending on the cell type.
             # The shape of the hidden state here should be [num_rnn_layers, batch_size, hidden_state_sizes].
             # Remember that each rnn cell needs its own initial state.
             # initial_hidden_state = None
             # initial_hidden_state = torch.zeros(1, batch_size, self.hidden_state_sizes)
-            initial_hidden_state = torch.zeros(self.num_rnn_layers, self.batch_size, self.hidden_state_sizes)
-
+            initial_hidden_state = torch.zeros(self.num_rnn_layers, batch_size, self.hidden_state_sizes)
+            # need to move the initial hidden state tensor to device,; default appear tp be cpu for some reason...
+            initial_hidden_state = initial_hidden_state.to(cnn_features.device)
+            # print(f"Tensor device for hidden_state: {initial_hidden_state.device}")
 
         else:
             initial_hidden_state = current_hidden_state
@@ -147,7 +149,9 @@ class RNNOneLayerSimplified(nn.Module):
             #       Hint: Unsqueeze the output: to keep the same structure as the original current_hidden_state,
             #       which had three dimensions use unsqueeze() function to add an extra dimension at the beginning
             #       of the tensor (position 0) -> current_hidden_state get shape (1, batch_size, hidden_state_size)
-            current_hidden_state = self.cells[0](input_for_the_first_layer, current_hidden_state).unsqueeze(0)
+            current_hidden_state = self.cells[0](input_for_the_first_layer, current_hidden_state)
+            current_hidden_state = current_hidden_state.unsqueeze(0)
+            # print(current_hidden_state.shape)
 
             # For a multi-layer RNN, apply the output layer (as done below) only after the last layer of the RNN
             # NOTE: for LSTM you use only the part(1st half of the tensor) which corresponds to the hidden state
@@ -168,6 +172,94 @@ class RNNOneLayerSimplified(nn.Module):
         logits = torch.stack(logits_sequence, dim=1)  # Convert the sequence of logits to a tensor
 
         return logits, current_hidden_state
+
+class RNNsimpleCell(nn.Module):
+    def __init__(self, hidden_state_size, input_size):
+        """
+        Args:
+            hidden_state_size: Integer defining the size of the hidden state of rnn cell
+            input_size: Integer defining the number of input features to the rnn
+
+        Returns:
+            self.weight: A nn.Parameter with shape [hidden_state_sizes + input_size, hidden_state_sizes]. Initialized
+                         using variance scaling with zero mean.
+
+            self.bias: A nn.Parameter with shape [1, hidden_state_sizes]. Initialized to zero. 
+
+        Tips:
+            Variance scaling:  Var[W] = 1/n
+        """
+        super(RNNsimpleCell, self).__init__()
+        self.hidden_state_size = hidden_state_size
+
+        self.weight = nn.Parameter(
+            torch.randn(input_size + hidden_state_size, hidden_state_size) / np.sqrt(input_size + hidden_state_size))
+        self.bias = nn.Parameter(torch.zeros(1, hidden_state_size))
+
+    def forward(self, x, state_old):
+        """
+        Args:
+            x: tensor with shape [batch_size, inputSize]
+            state_old: tensor with shape [batch_size, hidden_state_sizes]
+
+        Returns:
+            state_new: The updated hidden state of the recurrent cell. Shape [batch_size, hidden_state_sizes]
+
+        """
+        # I needed to make state_old a 3D tensor; BUT dont understand why??
+        # x2 = torch.cat((x, state_old), dim=1)
+        x2 = torch.cat((x, state_old.squeeze(0)), dim=1)
+        state_new = torch.tanh(torch.mm(x2, self.weight) + self.bias)
+        return state_new
+
+######################################################################################################################
+
+######################################################################################################################
+
+def loss_fn(logits, y_tokens, y_weights):
+    """
+    Weighted softmax cross entropy loss.
+
+    Args:
+        logits           : Shape[batch_size, truncated_backprop_length, vocabulary_size]
+        y_tokens (labels): Shape[batch_size, truncated_backprop_length]
+        y_weights         : Shape[batch_size, truncated_backprop_length]. Add contribution to the total loss only
+                           from words existing
+                           (the sequence lengths may not add up to #*truncated_backprop_length)
+
+    Returns:
+        sum_loss: The total cross entropy loss for all words
+        mean_loss: The averaged cross entropy loss for all words
+
+    Tips:
+        F.cross_entropy
+    """
+    eps = 1e-7  # Used to avoid division by 0
+
+    logits = logits.view(-1, logits.shape[2])
+    y_tokens = y_tokens.view(-1)
+    y_weights = y_weights.view(-1)
+    losses = F.cross_entropy(input=logits, target=y_tokens, reduction='none')
+
+    sum_loss = (losses * y_weights).sum()
+    mean_loss = sum_loss / (y_weights.sum() + eps)
+
+    return sum_loss, mean_loss
+
+
+# #####################################################################################################################
+# if __name__ == '__main__':
+#
+#     lossDict = {'logits': logits,
+#                 'yTokens': yTokens,
+#                 'yWeights': yWeights,
+#                 'sumLoss': sumLoss,
+#                 'meanLoss': meanLoss
+#     }
+#
+#     sumLoss, meanLoss = loss_fn(logits, yTokens, yWeights)
+#
+
 
 
 class RNN(nn.Module):
@@ -244,183 +336,4 @@ class RNN(nn.Module):
         return logits, current_hidden_state
 
 ########################################################################################################################
-
-class RNNsimpleCell(nn.Module):
-    def __init__(self, hidden_state_size, input_size):
-        """
-        Args:
-            hidden_state_size: Integer defining the size of the hidden state of rnn cell
-            input_size: Integer defining the number of input features to the rnn
-
-        Returns:
-            self.weight: A nn.Parameter with shape [hidden_state_sizes + input_size, hidden_state_sizes]. Initialized
-                         using variance scaling with zero mean.
-
-            self.bias: A nn.Parameter with shape [1, hidden_state_sizes]. Initialized to zero. 
-
-        Tips:
-            Variance scaling:  Var[W] = 1/n
-        """
-        super(RNNsimpleCell, self).__init__()
-        self.hidden_state_size = hidden_state_size
-
-        self.weight = nn.Parameter(
-            torch.randn(input_size + hidden_state_size, hidden_state_size) / np.sqrt(input_size + hidden_state_size))
-        self.bias = nn.Parameter(torch.zeros(1, hidden_state_size))
-
-    def forward(self, x, state_old):
-        """
-        Args:
-            x: tensor with shape [batch_size, inputSize]
-            state_old: tensor with shape [batch_size, hidden_state_sizes]
-
-        Returns:
-            state_new: The updated hidden state of the recurrent cell. Shape [batch_size, hidden_state_sizes]
-
-        """
-        x2 = torch.cat((x, state_old), dim=1)
-        state_new = torch.tanh(torch.mm(x2, self.weight) + self.bias)
-        return state_new
-
-######################################################################################################################
-
-class GRUCell(nn.Module):
-    def __init__(self, hidden_state_size: int, input_size: int):
-        """
-        :param hidden_state_size: Size (number of units/features) in the hidden state of GRU
-        :param input_size: Size (number of units/features) of the input to the GRU
-        """
-        super(GRUCell, self).__init__()
-        self.hidden_state_sizes = hidden_state_size
-
-        # TODO: Initialise weights and biases for the update gate (weight_u, bias_u), reset gate (w_r, b_r) and hidden
-        #       state (weight, bias).
-        #       self.weight, self.weight_(u, r):
-        #           A nn.Parameter with shape [HIDDEN_STATE_SIZE + input_size, HIDDEN_STATE_SIZE].
-        #           Initialized using variance scaling with zero mean.
-        #       self.bias, self.bias_(u, r): A nn.Parameter with shape [1, hidden_state_sizes]. Initialized to zero.
-        #
-        #       Tips:
-        #           Variance scaling: Var[W] = 1/n
-
-        # Update gate parameters
-        self.weight_u = None
-        self.bias_u = None
-        # Reset gate parameters
-        self.weight_r = None
-        self.bias_r = None
-        # Hidden state parameters
-        self.weight = None
-        self.bias = None
-
-    def forward(self, x, hidden_state):
-        """
-        Implements the forward pass for a GRU unit.
-        :param x: A tensor with shape [batch_size, input_size] containing the input for the GRU.
-        :param hidden_state: A tensor with shape [batch_size, HIDDEN_STATE_SIZE]
-        :return: The updated hidden state of the GRU cell. Shape: [batch_size, HIDDEN_STATE_SIZE]
-        """
-        # TODO: Implement the GRU equations to get the new hidden state and return it
-        new_hidden_state = None
-        return new_hidden_state
-
-######################################################################################################################
-
-class LSTMCell(nn.Module):
-    def __init__(self, hidden_state_size: int, input_size: int):
-        """
-        :param hidden_state_size: Size (number of units/features) in the hidden state of GRU
-        :param input_size: Size (number of units/features) of the input to GRU
-        """
-        super(LSTMCell, self).__init__()
-        self.hidden_state_size = hidden_state_size
-
-        # TODO: Initialise weights and biases for the forget gate (weight_f, bias_f), input gate (w_i, b_i),
-        #       output gate (w_o, b_o), and hidden state (weight, bias)
-        #       self.weight, self.weight_(f, i, o):
-        #           A nn.Parameter with shape [HIDDEN_STATE_SIZE + input_size, HIDDEN_STATE_SIZE].
-        #           Initialized using variance scaling with zero mean.
-        #       self.bias, self.bias_(f, i, o): A nn.Parameter with shape [1, hidden_state_sizes]. Initialized to two.
-        #
-        #       Tips:
-        #           Variance scaling: Var[W] = 1/n
-        #       Note: The actual input tensor will have 2 * HIDDEN_STATE_SIZE because it contains both
-        #             hidden state and cell's memory
-
-        # Forget gate parameters
-        self.weight_f = None
-        self.bias_f = None
-        # Input gate parameters
-        self.weight_i = None
-        self.bias_i = None
-        # Output gate parameters
-        self.weight_o = None
-        self.bias_o = None
-        # Memory cell parameters
-        self.weight = None
-        self.bias = None
-
-    def forward(self, x, hidden_state):
-        """
-        Implements the forward pass for an GRU unit.
-        :param x: A tensor with shape [batch_size, input_size] containing the input for the GRU.
-        :param hidden_state: A tensor with shape [batch_size, 2 * HIDDEN_STATE_SIZE] containing the hidden
-                             state and the cell memory. The 1st half represents the hidden state and the
-                             2nd half represents the cell's memory
-        :return: The updated hidden state (including memory) of the GRU cell.
-                 Shape: [batch_size, 2 * HIDDEN_STATE_SIZE]
-        """
-        # TODO: Implement the GRU equations to get the new hidden state, cell memory and return them.
-        #       The first half of the returned value must represent the new hidden state and the second half
-        #       new cell state.
-        new_hidden_state = None
-        return new_hidden_state
-        
-
-######################################################################################################################
-
-def loss_fn(logits, y_tokens, y_weights):
-    """
-    Weighted softmax cross entropy loss.
-
-    Args:
-        logits           : Shape[batch_size, truncated_backprop_length, vocabulary_size]
-        y_tokens (labels): Shape[batch_size, truncated_backprop_length]
-        y_weights         : Shape[batch_size, truncated_backprop_length]. Add contribution to the total loss only
-                           from words existing
-                           (the sequence lengths may not add up to #*truncated_backprop_length)
-
-    Returns:
-        sum_loss: The total cross entropy loss for all words
-        mean_loss: The averaged cross entropy loss for all words
-
-    Tips:
-        F.cross_entropy
-    """
-    eps = 1e-7  # Used to avoid division by 0
-
-    logits = logits.view(-1, logits.shape[2])
-    y_tokens = y_tokens.view(-1)
-    y_weights = y_weights.view(-1)
-    losses = F.cross_entropy(input=logits, target=y_tokens, reduction='none')
-
-    sum_loss = (losses * y_weights).sum()
-    mean_loss = sum_loss / (y_weights.sum() + eps)
-
-    return sum_loss, mean_loss
-
-
-# #####################################################################################################################
-# if __name__ == '__main__':
-#
-#     lossDict = {'logits': logits,
-#                 'yTokens': yTokens,
-#                 'yWeights': yWeights,
-#                 'sumLoss': sumLoss,
-#                 'meanLoss': meanLoss
-#     }
-#
-#     sumLoss, meanLoss = loss_fn(logits, yTokens, yWeights)
-#
-
 

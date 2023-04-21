@@ -7,18 +7,18 @@ from utils.validate_metrics import validateCaptions
 # here you plug in your modelfile depending on what you have developed: simple rnn, 2 layer, or attention
 # if you have 3 modelfiles a.py b.py c.py then you do: from a import ...
 # or you have one file with n different imgcapmodels
-from cocoSource_xcnnfused import ImageCaptionModel
+from cocoSource_xcnnfused02 import ImageCaptionModel
 
 
 def main(config, modelParam):
-    # create an instance of the model you want
+    # create an instance of the ImageCaptionModel (model you want) using the Model class and pass the config and modelParam dictionaries
     model = Model(config, modelParam, ImageCaptionModel)
 
-    # create an instacne of the saver and resoterer class
+    # Create an instance of the SaverRestorer class: saves and restore the model's state
     saveRestorer = SaverRestorer(config, modelParam)
 
     if modelParam['inference'] == True:
-        model = saveRestorer.restore(model)
+        model = saveRestorer.restore(model)  # loads and save weights of previously trained model into current model instance
 
     # create your data generator
     dataLoader = DataLoaderWrapper(config, modelParam)
@@ -45,7 +45,7 @@ if __name__ == '__main__':
         'cuda': {'use_cuda': True,  # Use_cuda=True: use GPU
                  'device_idx': 0},  # Select gpu index: 0,1,2,3
         'numbOfCPUThreadsUsed': 10,  # Number of cpu threads use in the dataloader
-        'numbOfEpochs': 99,  # Number of epochs
+        'numbOfEpochs': 2,  # WAS=99; Number of epochs
         'data_dir': data_dir,  # data directory
         'img_dir': 'loss_images_test/',
         'modelsDir': 'storedModels_test/',
@@ -66,7 +66,7 @@ if __name__ == '__main__':
         'vocabulary_size': 10000,  # number of different words
         'truncated_backprop_length': 25,
         'hidden_state_sizes': 512,  #
-        'num_rnn_layers': 1,  # number of stacked rnn's
+        'num_rnn_layers': 2,  # number of stacked rnn's
         'scheduler_milestones': [75,90], #45,70 end at 80? or 60, 80
         'scheduler_factor': 0.2, #+0.25 dropout
         #'featurepathstub': 'detectron2vg_features' ,
