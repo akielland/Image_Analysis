@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+import numpy as np
 
 
 class ImageCaptionModel(nn.Module):
@@ -259,14 +260,17 @@ class GRUCell(nn.Module):
         #           Variance scaling: Var[W] = 1/n
 
         # Update gate parameters
-        self.weight_u = None
-        self.bias_u = None
+        self.weight_u = torch.nn.Parameter(
+            torch.randn(hidden_state_size + input_size, hidden_state_size) / np.sqrt(hidden_state_size + input_size))
+        self.bias_u = torch.nn.Parameter(torch.zeros(1, hidden_state_size))
         # Reset gate parameters
-        self.weight_r = None
-        self.bias_r = None
+        self.weight_r = torch.nn.Parameter(
+            torch.randn(hidden_state_size + input_size, hidden_state_size) / np.sqrt(hidden_state_size + input_size))
+        self.bias_r = torch.nn.Parameter(torch.zeros(1, hidden_state_size))
         # Hidden state parameters
-        self.weight = None
-        self.bias = None
+        self.weight = torch.nn.Parameter(
+            torch.randn(hidden_state_size + input_size, hidden_state_size) / np.sqrt(hidden_state_size + input_size))
+        self.bias = torch.nn.Parameter(torch.zeros(1, hidden_state_size))
 
     def forward(self, x, hidden_state):
         """
@@ -276,7 +280,18 @@ class GRUCell(nn.Module):
         :return: The updated hidden state of the GRU cell. Shape: [batch_size, HIDDEN_STATE_SIZE]
         """
         # TODO: Implement the GRU equations to get the new hidden state and return it
-        new_hidden_state = None
+        # concatenation of the input x and the previous hidden state
+        hidden_input = torch.cat((hidden_state, x), dim=1)
+        # update gate
+        u = torch.sigmoid(torch.matmul(hidden_input, self.weight_u) + self.bias_u)
+        # reset gate
+        r = torch.sigmoid(torch.matmul(hidden_input, self.weight_r) + self.bias_r)
+        # proposed activation/candidate hidden state
+        h_hat = torch.tanh(torch.matmul(torch.cat((r*hidden_state, x), dim=1), self.weight) + self.bias)
+
+        # final output/new hidden state
+        new_hidden_state = u * hidden_state + (1 - u) * h_hat
+
         return new_hidden_state
 
 

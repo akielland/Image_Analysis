@@ -1,7 +1,8 @@
 import pytest
 import torch
 
-from lstm_gru.gru_error import GRUCell
+# from lstm_gru.gru_error import GRUCell
+from cocoSource_xcnnfused02 import GRUCell
 
 HIDDEN_STATE_SIZE, INPUT_SIZE = 7, 3
 GRU = GRUCell(hidden_state_size=HIDDEN_STATE_SIZE, input_size=INPUT_SIZE)
