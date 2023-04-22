@@ -111,14 +111,11 @@ class RNN(nn.Module):
         rnn_cells = []    # list to store the RNN cell instances
         # loop through RNN layers (just 2 layers here; self.cells will have 2 cells in the end)
         for i in range(num_rnn_layers):
-            if cell_type == 'GRU':
-                rnn_cell_class = GRUCell
-            elif cell_type == 'LSTM':
-                rnn_cell_class = LSTMCell
+            rnn_cell_class = getattr(nn, cell_type)  # get RNN cell class based; cell_type variable = nn.GRU/nn.LSTM
 
             # Create an instance of the RNN cells with the appropriate input size and hidden state size
             # cell input size is determined by input_size_list[i]: 0=input_size; 1=hidden_state_size of prev layer
-            rnn_cell_instance = rnn_cell_class(hidden_state_size, input_size_list[i])
+            rnn_cell_instance = rnn_cell_class(input_size_list[i], hidden_state_size)
             rnn_cells.append(rnn_cell_instance)
 
         # wrap list of RNN cells in a nn.ModuleList and assign to self.cells
@@ -174,51 +171,33 @@ class RNN(nn.Module):
                     # print(shape processed_cnn_features): torch.Size([128/8, 512])
                     # print(input_tokens.shape)): torch.Size([128/8, 300])
                     rnn_input = torch.cat((input_tokens, processed_cnn_features), dim=1)
-                    print(rnn_input.shape)
-
-                    # rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
-                    print("input_tokens.shape j=0: ", rnn_input.shape)
+                    rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
                 else:
                     rnn_input = rnn_output
                 # print("Input to RNN cell:", rnn_input.shape)
 
                 # Here update weightes of the current hidden state and output of the cell
                 # use unsqueeze(0) to pass the correct input dimensions.
-                print("shape current_hidden_state: ", current_hidden_state.shape)
-                print("shape current_hidden_state: ", current_hidden_state[j].shape)
-                print("shape current_hidden_state[j]: ", current_hidden_state[j].unsqueeze(0).shape)
-
-                # new_hidden_state = cell(rnn_input, current_hidden_state[j].unsqueeze(0))
-                new_hidden_state = cell(rnn_input, current_hidden_state[j])
+                rnn_output, hidden_state = cell(rnn_input, current_hidden_state[j].unsqueeze(0))
 
                 # remove (squeeze) first dim before appending to the list
                 # make a list that contains the updated hidden state tensors for each layer in the RNN
                 # Each hidden state tensor has a shape of [batch_size, hidden_state_size].
-
-                #updated_hidden_states.append(hidden_state.squeeze(0))
+                updated_hidden_states.append(hidden_state.squeeze(0))
 
                 # For the next layer, use the rnn_output as input
                 # rnn_input = rnn_output
 
-                if isinstance(cell, LSTMCell):
-                    hidden_state = new_hidden_state[:, :self.hidden_state_size]
-                    cell_state = new_hidden_state[:, self.hidden_state_size:]
-
-                    updated_hidden_states.append(torch.cat((hidden_state, cell_state), dim=1))
-                    rnn_output = hidden_state.unsqueeze(0)
-                else:
-                    updated_hidden_states.append(new_hidden_state.squeeze(0))
-                    rnn_output = new_hidden_state.unsqueeze(0)
-                
             current_hidden_state = torch.stack(updated_hidden_states, dim=0)
             # updated_hidden_states list is stacked into a tensor along dimension 0
             # gives: [num_rnn_layers, batch_size, hidden_state_size] / [2, 128, 512]
 
             # output_layer() is an instance of the nn.Linear: calling the forward method of the nn.Linear class on the rnn_output tensor
-            # logits_i = output_layer(current_hidden_state[0, :])
-            logits_i = output_layer(current_hidden_state[-1])
+            # NOTE: for LSTM you use only the part(1st half of the tensor) which corresponds to the hidden state
+            only_hidden_state = current_hidden_state[:, :, :current_hidden_state.shape[2] // 2]
+            # logits_i = output_layer(only_hidden_state[0, :])
+            logits_i = output_layer(only_hidden_state[-1])
             logits_sequence.append(logits_i)  # shape of logits_i -> [batch_size, vocabulary_size]
-
             # predictions, is a tensor with shape [batch_size],
             # where each element is the predicted index of the most probable word in the vocabulary
             predictions = torch.argmax(logits_i, dim=-1)
@@ -290,20 +269,12 @@ class GRUCell(nn.Module):
         """
         # TODO: Implement the GRU equations to get the new hidden state and return it
         # concatenation of the input x and the previous hidden state
-        print("IN GRU")
-        print(x.shape)
-        print(hidden_state.shape)
-        print(self.weight.shape)
         input_hidden = torch.cat((x, hidden_state), dim=1)
-
         # update gate
         u = torch.sigmoid(torch.matmul(input_hidden, self.weight_u) + self.bias_u)
         # reset gate
         r = torch.sigmoid(torch.matmul(input_hidden, self.weight_r) + self.bias_r)
         # proposed activation/candidate hidden state
-
-        print()
-
         h_hat = torch.tanh(torch.matmul(torch.cat((r*hidden_state, x), dim=1), self.weight) + self.bias)
 
         # final output/new hidden state
@@ -411,8 +382,7 @@ class LSTMCell(nn.Module):
         #       new cell state.
 
         # splits hidden_state tensor: 1) previous hidden state h_prev; 2) previous memory cell state c_pre
-        h_prev = hidden_state[:, :self.hidden_state_size]
-        c_prev = hidden_state[:, self.hidden_state_size:]
+        h_prev, c_prev = hidden_state[:, :self.hidden_state_size], hidden_state[:, self.hidden_state_size:]
 
         # concatenation of the input x and the previous hidden state
         input_hidden = torch.cat((x, h_prev), dim=1)  # shape (batch_size, input_size + hidden_state_size)
@@ -422,10 +392,6 @@ class LSTMCell(nn.Module):
         o_t = torch.sigmoid(torch.matmul(input_hidden, self.weight_o) + self.bias_o)
         f_t = torch.sigmoid(torch.matmul(input_hidden, self.weight_f) + self.bias_f)
         c_hat_t = torch.tanh(torch.matmul(input_hidden, self.weight) + self.bias)
-        print("Shape of f_t:", f_t.shape)
-        print("Shape of c_prev:", c_prev.shape)
-        print("Shape of i_t:", i_t.shape)
-        print("Shape of c_hat_t:", c_hat_t.shape)
 
         # computes new memory cell state c_t
         c_t = f_t * c_prev + i_t * c_hat_t

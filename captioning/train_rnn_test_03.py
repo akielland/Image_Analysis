@@ -7,7 +7,7 @@ from utils.validate_metrics import validateCaptions
 # here you plug in your modelfile depending on what you have developed: simple rnn, 2 layer, or attention
 # if you have 3 modelfiles a.py b.py c.py then you do: from a import ...
 # or you have one file with n different imgcapmodels
-from cocoSource_xcnnfused import ImageCaptionModel
+from cocoSource_xcnnfused02 import ImageCaptionModel
 
 
 def main(config, modelParam):
@@ -45,7 +45,7 @@ if __name__ == '__main__':
         'cuda': {'use_cuda': True,  # Use_cuda=True: use GPU
                  'device_idx': 0},  # Select gpu index: 0,1,2,3
         'numbOfCPUThreadsUsed': 10,  # Number of cpu threads use in the dataloader
-        'numbOfEpochs': 99,  # Number of epochs
+        'numbOfEpochs': 2,  # Number of epochs
         'data_dir': data_dir,  # data directory
         'img_dir': 'loss_images_test/',
         'modelsDir': 'storedModels_test/',
@@ -73,7 +73,7 @@ if __name__ == '__main__':
         #'featurepathstub': 'detectron2m_features' ,
         #'featurepathstub': 'detectron2cocov3_tenmfeatures' ,
         'featurepathstub': 'detectron2_lim10maxfeatures' ,
-        'cellType':  'RNN' #'GRU'  # RNN or GRU or GRU??
+        'cellType':  'LSTM'  # RNN or GRU or GRU??
     }
 
     if modelParam['inference'] == True:
