@@ -99,15 +99,14 @@ class RNN(nn.Module):
         self.num_rnn_layers = num_rnn_layers
         self.cell_type = cell_type
 
-        # TODO: len(input_size_list) == num_rnn_layers. input_size_list[i] should contain the input size for layer i.
-        # input_size_list = []
+        # TODO: len(input_size_list) == num_rnn_layers.
+        #  input_size_list[i] should contain the input size for layer i.
         # used later when populating self.cells to give correct input
         # hidden state size is the same for all layers; as defined by hidden_state_size
         input_size_list = [input_size] + [hidden_state_size] * (num_rnn_layers - 1)
 
-        # TODO: Create a list of type "nn.ModuleList" and populate it with cells of type
-        #       "self.cell_type" - depending on the number of RNN layers.
-        # self.cells = None
+        # TODO: Create a list (self.cells) of type "nn.ModuleList" and populate it with cells of type
+        #       "self.cell_type" - depending on the number of RNN layers
         rnn_cells = []    # list to store the RNN cell instances
         # loop through RNN layers (just 2 layers here; self.cells will have 2 cells in the end)
         for i in range(num_rnn_layers):
@@ -179,7 +178,7 @@ class RNN(nn.Module):
                     # rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
                     print("input_tokens.shape j=0: ", rnn_input.shape)
                 else:
-                    rnn_input = rnn_output
+                    rnn_input = rnn_output.squeeze(0)
                 # print("Input to RNN cell:", rnn_input.shape)
 
                 # Here update weightes of the current hidden state and output of the cell
@@ -209,7 +208,7 @@ class RNN(nn.Module):
                 else:
                     updated_hidden_states.append(new_hidden_state.squeeze(0))
                     rnn_output = new_hidden_state.unsqueeze(0)
-                
+
             current_hidden_state = torch.stack(updated_hidden_states, dim=0)
             # updated_hidden_states list is stacked into a tensor along dimension 0
             # gives: [num_rnn_layers, batch_size, hidden_state_size] / [2, 128, 512]
@@ -301,8 +300,6 @@ class GRUCell(nn.Module):
         # reset gate
         r = torch.sigmoid(torch.matmul(input_hidden, self.weight_r) + self.bias_r)
         # proposed activation/candidate hidden state
-
-        print()
 
         h_hat = torch.tanh(torch.matmul(torch.cat((r*hidden_state, x), dim=1), self.weight) + self.bias)
 
