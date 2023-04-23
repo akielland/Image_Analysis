@@ -59,13 +59,14 @@ class ImageCaptionModel(nn.Module):
             initial_hidden_state = initial_hidden_state.to(cnn_features.device)
 
         else:
-            print("IN ELSE !!!!!!!!!!!!")
+            print("in the first ELSE !!!!!!!!!!!!")
             initial_hidden_state = current_hidden_state
 
         # Call self.rnn to get the "logits" and the new hidden state
         logits, hidden_state = self.rnn(x_tokens, processed_cnn_features, initial_hidden_state,
                                         self.output_layer, self.embedding_layer, is_train)
-        # print("in MAIN class")
+
+        print("IN MAIN CLASS!!!!")
         return logits, hidden_state
 
 ######################################################################################################################
@@ -136,12 +137,10 @@ class RNN(nn.Module):
         embeddings = embedding_layer(input=tokens)  # Should have shape (batch_size, sequence_length, embedding_size)
 
         logits_sequence = []
-         # print("initial hidden state 1: ", initial_hidden_state.shape)
-        if self.cell_type == 'LSTM':
-            initial_hidden_and_cell_state = torch.cat((initial_hidden_state, torch.zeros_like(initial_hidden_state)), dim=2)
-            current_hidden_state = initial_hidden_and_cell_state  # Shape: [num_layers, batch_size, 2 * hidden_state_size]
-        else:
-            current_hidden_state = initial_hidden_state  # Initial hidden state shape: torch.Size([2, 128, 512])
+        current_hidden_state = initial_hidden_state  #Initial hidden state shape: torch.Size([2, 128, 512])
+        print("initial hidden state 1: ", initial_hidden_state.shape)
+        initial_hidden_and_cell_state = torch.cat((initial_hidden_state, torch.zeros_like(initial_hidden_state)), dim=2)
+        current_hidden_state = initial_hidden_and_cell_state  # Shape: [num_layers, batch_size, 2 * hidden_state_size]
 
         # TODO: Fetch the first (index 0) embeddings that should go as input to the RNN.
         # Use these tokens in the loop(s) below
@@ -149,7 +148,7 @@ class RNN(nn.Module):
         input_tokens = embeddings[:, 0, :]
 
         # Loop over the time steps from 0 to sequence_length:
-        for i in range(sequence_length):
+        for i in range(0, sequence_length):
             # TODO:
             # 1. Loop over the RNN layers and provide them with correct input. Inputs depend on the layer
             #    index so input for layer-0 will be different from the input for other layers.
@@ -166,14 +165,14 @@ class RNN(nn.Module):
                     rnn_input = torch.cat((input_tokens, processed_cnn_features), dim=1)
 
                     # rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
-                    # print("input.shape j=0: ", rnn_input.shape)
+                    print("input.shape j=0: ", rnn_input.shape)
                 else:
                     rnn_input = rnn_output.squeeze(0)
                 # print("Input to RNN cell:", rnn_input.shape)
 
                 # Here update weightes of the current hidden state and output of the cell
                 # use unsqueeze(0) to pass the correct input dimensions.
-                # print("shape current_hidden_state: ", current_hidden_state.shape)
+                print("shape current_hidden_state: ", current_hidden_state.shape)
 
                 # new_hidden_state = cell(rnn_input, current_hidden_state[j].unsqueeze(0))
                 new_hidden_state = cell(rnn_input, current_hidden_state[j])
@@ -191,7 +190,7 @@ class RNN(nn.Module):
                     hidden_state = new_hidden_state[:, :self.hidden_state_size]
                     cell_state = new_hidden_state[:, self.hidden_state_size:]
                     updated_hidden_states.append(torch.cat((hidden_state, cell_state), dim=1))
-                    # print("isinstance, hidden_state shape: ", hidden_state.shape)
+                    print("isinstance, hidden_state shape: ", hidden_state.shape)
                     rnn_output = hidden_state.unsqueeze(0)
                 else:
                     updated_hidden_states.append(new_hidden_state.squeeze(0))
@@ -234,7 +233,7 @@ class RNN(nn.Module):
 
 
         logits = torch.stack(logits_sequence, dim=1)  # convert sequence of logits to a tensor
-        # print("output: ", hidden_state.unsqueeze(0).shape)
+        print("output: ", hidden_state.unsqueeze(0).shape)
         return logits, hidden_state.unsqueeze(0)
 
 ########################################################################################################################
@@ -372,7 +371,7 @@ class LSTMCell(nn.Module):
         f_t = torch.sigmoid(torch.matmul(input_hidden, self.weight_f) + self.bias_f)
         c_hat_t = torch.tanh(torch.matmul(input_hidden, self.weight) + self.bias)
 
-        # print("Shape of c_prev:", c_prev.shape)
+        print("Shape of c_prev:", c_prev.shape)
 
         # computes new memory cell state c_t
         c_t = f_t * c_prev + i_t * c_hat_t

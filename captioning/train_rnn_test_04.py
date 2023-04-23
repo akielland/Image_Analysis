@@ -45,7 +45,7 @@ if __name__ == '__main__':
         'cuda': {'use_cuda': True,  # Use_cuda=True: use GPU
                  'device_idx': 0},  # Select gpu index: 0,1,2,3
         'numbOfCPUThreadsUsed': 10,  # Number of cpu threads use in the dataloader
-        'numbOfEpochs': 99,  # Number of epochs
+        'numbOfEpochs': 2,  # Number of epochs
         'data_dir': data_dir,  # data directory
         'img_dir': 'loss_images_test/',
         'modelsDir': 'storedModels_test/',
@@ -72,7 +72,7 @@ if __name__ == '__main__':
         #'featurepathstub': 'detectron2vg_features' ,
         #'featurepathstub': 'detectron2m_features' ,
         #'featurepathstub': 'detectron2cocov3_tenmfeatures' ,
-        'featurepathstub': 'detectron2_lim10maxfeatures' ,
+        'featurepathstub': 'detectron2_lim10features',
         'cellType':  'LSTM' #'GRU'  # RNN or GRU or GRU??
     }
 

@@ -25,10 +25,11 @@ class ImageCaptionModel(nn.Module):
         #         Replace None with a linear layer with correct output size
         self.output_layer = nn.Linear(self.hidden_state_sizes, self.vocabulary_size) # nn.Linear(self.hidden_state_sizes, )
         self.nn_map_size = 512  # The output size for the image features after the processing via self.inputLayer
-        # TODO: Check the task description and replace None with the correct input layer
+
         self.input_layer = nn.Sequential(
-            nn.Dropout(p=0.25),
-            nn.Linear(self.number_of_cnn_features, self.nn_map_size),
+            nn.Dropout(0.25),
+            nn.Conv1d(self.number_of_cnn_features, self.nn_map_size, kernel_size=1),
+            nn.BatchNorm1d(self.nn_map_size),
             nn.LeakyReLU()
         )
 
@@ -48,7 +49,10 @@ class ImageCaptionModel(nn.Module):
                 of size [num_rnn_layers, batch_size, hidden_state_sizes]
         """
         # HINT: For task 4, you might need to do self.input_layer(torch.transpose(cnn_features, 1, 2))
-        processed_cnn_features = self.input_layer(cnn_features)
+        # cnn_features shape: [batch_size, 10, 2048]
+        # processed_cnn_features = self.input_layer(cnn_features)  # [batch_size, 10, nn_mapsize]
+        processed_cnn_features = self.input_layer(torch.transpose(cnn_features, 1, 2))
+        processed_cnn_features, _ = torch.max(processed_cnn_features, dim=1)  # [batch_size, nn_mapsize]
 
         if current_hidden_state is None:
             # TODO: Initialize initial_hidden_state with correct dimensions depending on the cell type.
@@ -72,7 +76,7 @@ class ImageCaptionModel(nn.Module):
 
 
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_state_size, num_rnn_layers, cell_type='GRU'):
+    def __init__(self, input_size, hidden_state_size, num_rnn_layers, cell_type='LSTM'):
         """
         :param input_size: Size of the embeddings
         :param hidden_state_size: Number of units in the RNN cells (will be equal for all RNN layers)
@@ -85,25 +89,24 @@ class RNN(nn.Module):
         self.num_rnn_layers = num_rnn_layers
         self.cell_type = cell_type
 
-        # TODO: len(input_size_list) == num_rnn_layers.
-        #  input_size_list[i] should contain the input size for layer i.
-        # used later when populating self.cells to give correct input
-        # hidden state size is the same for all layers; as defined by hidden_state_size
+        # Attention MLP
+        self.attention_mlp = nn.Sequential(
+            nn.Dropout(0.25),
+            nn.Linear(hidden_state_size * 2, 50),  # takes in the hidden state and memory cell of the first layer
+            nn.LeakyReLU(),
+            nn.Linear(50, 10),
+            nn.Softmax(dim=1)
+        )
+
         input_size_list = [input_size] + [hidden_state_size] * (num_rnn_layers - 1)
 
         # TODO: Create a list (self.cells) of type "nn.ModuleList" and populate it with cells of type
         #       "self.cell_type" - depending on the number of RNN layers
         rnn_cells = []    # list to store the RNN cell instances
-        # loop through RNN layers (just 2 layers here; self.cells will have 2 cells in the end)
         for i in range(num_rnn_layers):
-            if cell_type == 'GRU':
-                rnn_cell_class = GRUCell
-            elif cell_type == 'LSTM':
-                rnn_cell_class = LSTMCell
-
             # Create an instance of the RNN cells with the appropriate input size and hidden state size
             # cell input size is determined by input_size_list[i]: 0=input_size; 1=hidden_state_size of prev layer
-            rnn_cell_instance = rnn_cell_class(hidden_state_size, input_size_list[i])
+            rnn_cell_instance = LSTMCell(hidden_state_size, input_size_list[i])
             rnn_cells.append(rnn_cell_instance)
 
         # wrap list of RNN cells in a nn.ModuleList and assign to self.cells
@@ -136,7 +139,7 @@ class RNN(nn.Module):
         embeddings = embedding_layer(input=tokens)  # Should have shape (batch_size, sequence_length, embedding_size)
 
         logits_sequence = []
-         # print("initial hidden state 1: ", initial_hidden_state.shape)
+
         if self.cell_type == 'LSTM':
             initial_hidden_and_cell_state = torch.cat((initial_hidden_state, torch.zeros_like(initial_hidden_state)), dim=2)
             current_hidden_state = initial_hidden_and_cell_state  # Shape: [num_layers, batch_size, 2 * hidden_state_size]
@@ -145,10 +148,8 @@ class RNN(nn.Module):
 
         # TODO: Fetch the first (index 0) embeddings that should go as input to the RNN.
         # Use these tokens in the loop(s) below
-        input_tokens = None  # Should have shape (batch_size, embedding_size)
-        input_tokens = embeddings[:, 0, :]
+        input_tokens = embeddings[:, 0, :]  # Should have shape (batch_size, embedding_size)
 
-        # Loop over the time steps from 0 to sequence_length:
         for i in range(sequence_length):
             # TODO:
             # 1. Loop over the RNN layers and provide them with correct input. Inputs depend on the layer
@@ -161,41 +162,31 @@ class RNN(nn.Module):
 
             for j, cell in enumerate(self.cells):
                 if j == 0:
-                    # print(shape processed_cnn_features): torch.Size([128/8, 512])
-                    # print(input_tokens.shape)): torch.Size([128/8, 300])
                     rnn_input = torch.cat((input_tokens, processed_cnn_features), dim=1)
-
                     # rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
-                    # print("input.shape j=0: ", rnn_input.shape)
+                    new_hidden_state = cell(rnn_input, current_hidden_state[j])
+                    attention_weights = self.attention_mlp(new_hidden_state)
                 else:
-                    rnn_input = rnn_output.squeeze(0)
-                # print("Input to RNN cell:", rnn_input.shape)
+                    attention_weighted_sum = torch.sum(processed_cnn_features * attention_weights.unsqueeze(2), dim=1)
+                    rnn_input = torch.cat((rnn_output.squeeze(0), attention_weighted_sum), dim=1)
 
-                # Here update weightes of the current hidden state and output of the cell
-                # use unsqueeze(0) to pass the correct input dimensions.
-                # print("shape current_hidden_state: ", current_hidden_state.shape)
+                    # Here update weightes of the current hidden state
+                    # use unsqueeze(0) to pass the correct input dimensions.
+                    # new_hidden_state = cell(rnn_input, current_hidden_state[j].unsqueeze(0))
+                    new_hidden_state = cell(rnn_input, current_hidden_state[j])
 
-                # new_hidden_state = cell(rnn_input, current_hidden_state[j].unsqueeze(0))
-                new_hidden_state = cell(rnn_input, current_hidden_state[j])
-
-                # remove (squeeze) first dim before appending to the list
                 # make a list that contains the updated hidden state tensors for each layer in the RNN
                 # Each hidden state tensor has a shape of [batch_size, hidden_state_size].
-
                 #updated_hidden_states.append(hidden_state.squeeze(0))
-
                 # For the next layer, use the rnn_output as input
                 # rnn_input = rnn_output
 
-                if isinstance(cell, LSTMCell):
-                    hidden_state = new_hidden_state[:, :self.hidden_state_size]
-                    cell_state = new_hidden_state[:, self.hidden_state_size:]
-                    updated_hidden_states.append(torch.cat((hidden_state, cell_state), dim=1))
-                    # print("isinstance, hidden_state shape: ", hidden_state.shape)
-                    rnn_output = hidden_state.unsqueeze(0)
-                else:
-                    updated_hidden_states.append(new_hidden_state.squeeze(0))
-                    rnn_output = new_hidden_state.unsqueeze(0)
+                hidden_state = new_hidden_state[:, :self.hidden_state_size]
+                cell_state = new_hidden_state[:, self.hidden_state_size:]
+                updated_hidden_states.append(torch.cat((hidden_state, cell_state), dim=1))
+                # print("isinstance, hidden_state shape: ", hidden_state.shape)
+                rnn_output = hidden_state.unsqueeze(0)
+
 
             current_hidden_state = torch.stack(updated_hidden_states, dim=0)
             # updated_hidden_states list is stacked into a tensor along dimension 0
@@ -204,10 +195,7 @@ class RNN(nn.Module):
             # output_layer() is an instance of the nn.Linear: calling the forward method of the nn.Linear class on the rnn_output tensor
             # logits_i = output_layer(current_hidden_state[0, :])
 
-            if isinstance(self.cells[-1], LSTMCell):
-                hidden_state = current_hidden_state[-1, :, :self.hidden_state_size]
-            else:
-                hidden_state = current_hidden_state[-1]
+            hidden_state = current_hidden_state[-1, :, :self.hidden_state_size]
 
             logits_i = output_layer(hidden_state)
 
