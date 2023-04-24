@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-
+torch.manual_seed(123)  # Set the seed for PyTorch
 
 class ImageCaptionModel(nn.Module):
     def __init__(self, config: dict):

@@ -45,7 +45,7 @@ if __name__ == '__main__':
         'cuda': {'use_cuda': True,  # Use_cuda=True: use GPU
                  'device_idx': 0},  # Select gpu index: 0,1,2,3
         'numbOfCPUThreadsUsed': 10,  # Number of cpu threads use in the dataloader
-        'numbOfEpochs': 2,  # Number of epochs
+        'numbOfEpochs': 2,  # 80 Number of epochs
         'data_dir': data_dir,  # data directory
         'img_dir': 'loss_images_test/',
         'modelsDir': 'storedModels_test/',
@@ -66,7 +66,7 @@ if __name__ == '__main__':
         'vocabulary_size': 10000,  # number of different words
         'truncated_backprop_length': 25,
         'hidden_state_sizes': 512,  #
-        'num_rnn_layers': 1,  # number of stacked rnn's
+        'num_rnn_layers': 2,  # number of stacked rnn's
         'scheduler_milestones': [75,90], #45,70 end at 80? or 60, 80
         'scheduler_factor': 0.2, #+0.25 dropout
         #'featurepathstub': 'detectron2vg_features' ,

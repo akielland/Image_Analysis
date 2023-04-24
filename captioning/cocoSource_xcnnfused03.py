@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-
+torch.manual_seed(123)  # Set the seed for PyTorch
 
 class ImageCaptionModel(nn.Module):
     def __init__(self, config: dict):
@@ -49,13 +49,22 @@ class ImageCaptionModel(nn.Module):
         """
         # HINT: For task 4, you might need to do self.input_layer(torch.transpose(cnn_features, 1, 2))
         processed_cnn_features = self.input_layer(cnn_features)
+        batch_size = cnn_features.size(0)
 
         if current_hidden_state is None:
             # TODO: Initialize initial_hidden_state with correct dimensions depending on the cell type.
             # The shape of the hidden state here should be [num_rnn_layers, batch_size, hidden_state_sizes].
             # Remember that each rnn cell needs its own initial state.
-            batch_size = cnn_features.size(0)
-            initial_hidden_state = torch.zeros(self.num_rnn_layers, batch_size, self.hidden_state_sizes)
+
+            if self.cell_type == 'LSTM':
+                initial_hidden_state = torch.zeros(self.num_rnn_layers, batch_size, 2*self.hidden_state_sizes)
+                # initial_hidden_and_cell_state = torch.cat((initial_hidden_state, torch.zeros_like(initial_hidden_state)), dim=2)
+                # current_hidden_state = initial_hidden_and_cell_state  # Shape: [num_layers, batch_size, 2 * hidden_state_size]
+            else:
+                current_hidden_state = initial_hidden_state
+                # Initial hidden state shape: torch.Size([2, 128, 512])
+                initial_hidden_state = torch.zeros(self.num_rnn_layers, batch_size, self.hidden_state_sizes)
+
             initial_hidden_state = initial_hidden_state.to(cnn_features.device)
 
         else:
@@ -136,12 +145,12 @@ class RNN(nn.Module):
         embeddings = embedding_layer(input=tokens)  # Should have shape (batch_size, sequence_length, embedding_size)
 
         logits_sequence = []
-         # print("initial hidden state 1: ", initial_hidden_state.shape)
-        if self.cell_type == 'LSTM':
-            initial_hidden_and_cell_state = torch.cat((initial_hidden_state, torch.zeros_like(initial_hidden_state)), dim=2)
-            current_hidden_state = initial_hidden_and_cell_state  # Shape: [num_layers, batch_size, 2 * hidden_state_size]
-        else:
-            current_hidden_state = initial_hidden_state  # Initial hidden state shape: torch.Size([2, 128, 512])
+        # initial_hidden_state.shape = torch.Size([2, 128, 512]
+        # if self.cell_type == 'LSTM':
+        #     initial_hidden_and_cell_state = torch.cat((initial_hidden_state, torch.zeros_like(initial_hidden_state)), dim=2)
+        #     current_hidden_state = initial_hidden_and_cell_state  # Shape: [num_layers, batch_size, 2 * hidden_state_size]
+        # else:
+        current_hidden_state = initial_hidden_state  # Initial hidden state shape: torch.Size([2, 128, 512])
 
         # TODO: Fetch the first (index 0) embeddings that should go as input to the RNN.
         # Use these tokens in the loop(s) below
@@ -173,7 +182,7 @@ class RNN(nn.Module):
 
                 # Here update weightes of the current hidden state and output of the cell
                 # use unsqueeze(0) to pass the correct input dimensions.
-                # print("shape current_hidden_state: ", current_hidden_state.shape)
+                # current_hidden_state.shape = torch.Size([2, 128, 1024]
 
                 # new_hidden_state = cell(rnn_input, current_hidden_state[j].unsqueeze(0))
                 new_hidden_state = cell(rnn_input, current_hidden_state[j])
@@ -198,8 +207,9 @@ class RNN(nn.Module):
                     rnn_output = new_hidden_state.unsqueeze(0)
 
             current_hidden_state = torch.stack(updated_hidden_states, dim=0)
+            # print("DIM current hidden stage: ", current_hidden_state.shape)
             # updated_hidden_states list is stacked into a tensor along dimension 0
-            # gives: [num_rnn_layers, batch_size, hidden_state_size] / [2, 128, 512]
+            # gives: [num_rnn_layers, batch_size, hidden_state_size*2] / [2, 128, 512]
 
             # output_layer() is an instance of the nn.Linear: calling the forward method of the nn.Linear class on the rnn_output tensor
             # logits_i = output_layer(current_hidden_state[0, :])
@@ -235,7 +245,8 @@ class RNN(nn.Module):
 
         logits = torch.stack(logits_sequence, dim=1)  # convert sequence of logits to a tensor
         # print("output: ", hidden_state.unsqueeze(0).shape)
-        return logits, hidden_state.unsqueeze(0)
+
+        return logits, current_hidden_state
 
 ########################################################################################################################
 
@@ -358,6 +369,11 @@ class LSTMCell(nn.Module):
         # TODO: Implement the LSTM equations to get the new hidden state, cell memory and return them.
         #       The first half of the returned value must represent the new hidden state and the second half
         #       new cell state.
+
+        print("IN LSTM")
+        # print(x.shape)
+        print(hidden_state.shape)
+        # print(self.weight.shape)
 
         # splits hidden_state tensor: 1) previous hidden state h_prev; 2) previous memory cell state c_pre
         h_prev = hidden_state[:, :self.hidden_state_size]

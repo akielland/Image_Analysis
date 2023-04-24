@@ -9,8 +9,6 @@ class ImageCaptionModel(nn.Module):
         """
         This is the main module class for the image captioning network
         :param config: dictionary holding neural network configuration
-
-        NOW HAVE: new input layer AND max-pooling along detected windows dim (in beginning of forward)
         """
         super(ImageCaptionModel, self).__init__()
         # Store config values as instance variables
@@ -54,7 +52,6 @@ class ImageCaptionModel(nn.Module):
         # cnn_features shape: [batch_size, 10, 2048]
         # processed_cnn_features = self.input_layer(cnn_features)  # [batch_size, 10, nn_mapsize]
         processed_cnn_features = self.input_layer(torch.transpose(cnn_features, 1, 2))
-        #  max-pooling along the detected windows dimension (dim=2) -> the pooled feature tensor
         processed_cnn_features, _ = torch.max(processed_cnn_features, dim=1)  # [batch_size, nn_mapsize]
 
         if current_hidden_state is None:
@@ -66,7 +63,7 @@ class ImageCaptionModel(nn.Module):
             initial_hidden_state = initial_hidden_state.to(cnn_features.device)
 
         else:
-            # print("IN ELSE !!!!!!!!!!!!")
+            print("IN ELSE !!!!!!!!!!!!")
             initial_hidden_state = current_hidden_state
 
         # Call self.rnn to get the "logits" and the new hidden state
@@ -101,15 +98,17 @@ class RNN(nn.Module):
             nn.Softmax(dim=1)
         )
 
+        input_size_list = [input_size] + [hidden_state_size] * (num_rnn_layers - 1)
+
         # TODO: Create a list (self.cells) of type "nn.ModuleList" and populate it with cells of type
         #       "self.cell_type" - depending on the number of RNN layers
-        rnn_cells = []    # list to store the RNN cell instances (2 LSTM cells)
-        input_size_list = [input_size] + [hidden_state_size] * (num_rnn_layers - 1)
+        rnn_cells = []    # list to store the RNN cell instances
         for i in range(num_rnn_layers):
             # Create an instance of the RNN cells with the appropriate input size and hidden state size
             # cell input size is determined by input_size_list[i]: 0=input_size; 1=hidden_state_size of prev layer
             rnn_cell_instance = LSTMCell(hidden_state_size, input_size_list[i])
             rnn_cells.append(rnn_cell_instance)
+
         # wrap list of RNN cells in a nn.ModuleList and assign to self.cells
         self.cells = nn.ModuleList(rnn_cells)
 
@@ -137,14 +136,13 @@ class RNN(nn.Module):
             sequence_length = 40  # Max sequence length to generate
 
         # Get embeddings for the whole sequence
-        # Should have shape (batch_size, sequence_length, embedding_size)
-        embeddings = embedding_layer(input=tokens)
+        embeddings = embedding_layer(input=tokens)  # Should have shape (batch_size, sequence_length, embedding_size)
+
         logits_sequence = []
 
         if self.cell_type == 'LSTM':
             initial_hidden_and_cell_state = torch.cat((initial_hidden_state, torch.zeros_like(initial_hidden_state)), dim=2)
-            # [num_layers, batch_size, 2 * hidden_state_size] -> [2, 128, 1024]
-            current_hidden_state = initial_hidden_and_cell_state
+            current_hidden_state = initial_hidden_and_cell_state  # Shape: [num_layers, batch_size, 2 * hidden_state_size]
         else:
             current_hidden_state = initial_hidden_state  # Initial hidden state shape: torch.Size([2, 128, 512])
 
@@ -166,7 +164,6 @@ class RNN(nn.Module):
                 if j == 0:
                     rnn_input = torch.cat((input_tokens, processed_cnn_features), dim=1)
                     # rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
-                    print("current hidden state: ", current_hidden_state.shape)
                     new_hidden_state = cell(rnn_input, current_hidden_state[j])
                     attention_weights = self.attention_mlp(new_hidden_state)
                 else:
@@ -272,10 +269,10 @@ class GRUCell(nn.Module):
         """
         # TODO: Implement the GRU equations to get the new hidden state and return it
         # concatenation of the input x and the previous hidden state
-        # print("IN GRU")
-        # print(x.shape)
-        # print(hidden_state.shape)
-        # print(self.weight.shape)
+        print("IN GRU")
+        print(x.shape)
+        print(hidden_state.shape)
+        print(self.weight.shape)
         input_hidden = torch.cat((x, hidden_state), dim=1)
 
         # update gate
@@ -418,3 +415,128 @@ def loss_fn(logits, y_tokens, y_weights):
 #     sumLoss, meanLoss = loss_fn(logits, yTokens, yWeights)
 #
 
+######################################################################################################################
+
+class RNNOneLayerSimplified(nn.Module):
+    def __init__(self, input_size, hidden_state_size):
+        super(RNNOneLayerSimplified, self).__init__()
+
+        self.input_size = input_size
+        self.hidden_state_size = hidden_state_size
+
+        self.cells = nn.ModuleList(
+            [RNNsimpleCell(hidden_state_size=self.hidden_state_size, input_size=self.input_size)])
+
+    def forward(self, tokens, processed_cnn_features, initial_hidden_state, output_layer: nn.Linear,
+                embedding_layer: nn.Embedding, is_train=True) -> tuple:
+        """
+        :param tokens: Words and chars that are to be used as inputs for the RNN.
+                       Shape: [batch_size, truncated_backpropagation_length]
+        :param processed_cnn_features: Output of the CNN from the previous module.
+        :param initial_hidden_state: The initial hidden state of the RNN.
+        :param output_layer: The final layer to be used to produce the output. Uses RNN's final output as input.
+                             It is an instance of nn.Linear
+        :param embedding_layer: The layer to be used to generate input embeddings for the RNN.
+        :param is_train: Boolean variable indicating whether you're training the network or not.
+                         If training mode is off then the predicted token should be fed as the input
+                         for the next step in the sequence.
+
+        :return: A tuple (logits, final hidden state of the RNN).
+                 logits' shape = [batch_size, truncated_backpropagation_length, vocabulary_size]
+                 hidden layer's shape = [num_rnn_layers, batch_size, hidden_state_sizes]
+        """
+        if is_train:
+            sequence_length = tokens.shape[1]  # Truncated backpropagation length
+        else:
+            sequence_length = 40  # Max sequence length to be generated
+
+        # Get embeddings for the whole sequence
+        all_embeddings = embedding_layer(input=tokens)  # Should've shape (batch_size, sequence_length, embedding_size)
+
+        logits_sequence = []
+        current_hidden_state = initial_hidden_state
+        # TODO: Fetch the first (index 0) embeddings that should go as input to the RNN.
+        # Use these tokens in the loop(s) below
+        # In this line of code: the embeddings for the first token (at index 0) in each sequence in the batch is selected
+        current_time_step_embeddings = all_embeddings[:, 0, :]  # Should have shape (batch_size, embedding_size)
+
+        # Use for loops to run over "sequence_length" and "self.num_rnn_layers" to compute logits
+        for i in range(sequence_length):
+            # This is for a one-layer RNN
+            # In a two-layer RNN you need to iterate through the 2 layers
+            # The input for the 2nd layer will be the output (hidden state) of the 1st layer
+            # TODO: Create the input for the RNN cell
+            # input_for_the_first_layer, will have a shape of (batch_size, embedding_size + nn_map_size).
+            # This tensor is used as input for the first layer of the RNN cell at the current time step.
+            input_for_the_first_layer = torch.cat((current_time_step_embeddings, processed_cnn_features), dim=1)
+
+            # Note that the current_hidden_state has 3 dims i.e. len(current_hidden_state.shape) == 3
+            # with first dimension having only 1 element, while the RNN cell needs a state with 2 dims as input
+            # TODO: Call the RNN cell with input_for_the_first_layer and current_hidden_state as inputs
+            #       Hint: Unsqueeze the output: to keep the same structure as the original current_hidden_state,
+            #       which had three dimensions use unsqueeze() function to add an extra dimension at the beginning
+            #       of the tensor (position 0) -> current_hidden_state get shape (1, batch_size, hidden_state_size)
+
+            current_hidden_state = self.cells[0](input_for_the_first_layer, current_hidden_state)
+            current_hidden_state = current_hidden_state.unsqueeze(0)
+            # print(current_hidden_state.shape)
+
+            # For a multi-layer RNN, apply the output layer (as done below) only after the last layer of the RNN
+            # NOTE: for LSTM you use only the part(1st half of the tensor) which corresponds to the hidden state
+            logits_i = output_layer(current_hidden_state[0, :])
+            logits_sequence.append(logits_i)
+            # Find the next predicted output element
+            predictions = torch.argmax(logits_i, dim=1)
+
+            # Set the embeddings for the next time step
+            # training:  the next vector from embeddings which comes from the input sequence
+            # prediction/inference: the last predicted token
+            if i < sequence_length - 1:
+                if is_train:
+                    current_time_step_embeddings = all_embeddings[:, i + 1, :]
+                else:
+                    current_time_step_embeddings = embedding_layer(predictions)
+
+        logits = torch.stack(logits_sequence, dim=1)  # Convert the sequence of logits to a tensor
+
+        return logits, current_hidden_state
+
+######################################################################################################################
+
+
+class RNNsimpleCell(nn.Module):
+    def __init__(self, hidden_state_size, input_size):
+        """
+        Args:
+            hidden_state_size: Integer defining the size of the hidden state of rnn cell
+            input_size: Integer defining the number of input features to the rnn
+
+        Returns:
+            self.weight: A nn.Parameter with shape [hidden_state_sizes + input_size, hidden_state_sizes]. Initialized
+                         using variance scaling with zero mean.
+
+            self.bias: A nn.Parameter with shape [1, hidden_state_sizes]. Initialized to zero.
+
+        Tips:
+            Variance scaling:  Var[W] = 1/n
+        """
+        super(RNNsimpleCell, self).__init__()
+        self.hidden_state_size = hidden_state_size
+
+        self.weight = nn.Parameter(
+            torch.randn(input_size + hidden_state_size, hidden_state_size) / np.sqrt(input_size + hidden_state_size))
+        self.bias = nn.Parameter(torch.zeros(1, hidden_state_size))
+
+    def forward(self, x, state_old):
+        """
+        Args:
+            x: tensor with shape [batch_size, inputSize]
+            state_old: tensor with shape [batch_size, hidden_state_sizes]
+
+        Returns:
+            state_new: The updated hidden state of the recurrent cell. Shape [batch_size, hidden_state_sizes]
+
+        """
+        x2 = torch.cat((x, state_old), dim=1)
+        state_new = torch.tanh(torch.mm(x2, self.weight) + self.bias)
+        return state_new
