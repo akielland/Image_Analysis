@@ -68,7 +68,7 @@ class ImageCaptionModel(nn.Module):
             initial_hidden_state = initial_hidden_state.to(cnn_features.device)
 
         else:
-            print("IN ELSE !!!!!!!!!!!!")
+            # print("IN ELSE !!!!!!!!!!!!")
             initial_hidden_state = current_hidden_state
 
         # Call self.rnn to get the "logits" and the new hidden state
@@ -177,7 +177,7 @@ class RNN(nn.Module):
                     # rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
                     # print("input.shape j=0: ", rnn_input.shape)
                 else:
-                    rnn_input = rnn_output.squeeze(0)
+                    rnn_input = rnn_output
                 # print("Input to RNN cell:", rnn_input.shape)
 
                 # Here update weightes of the current hidden state and output of the cell
@@ -185,26 +185,30 @@ class RNN(nn.Module):
                 # current_hidden_state.shape = torch.Size([2, 128, 1024]
 
                 # new_hidden_state = cell(rnn_input, current_hidden_state[j].unsqueeze(0))
+                print("current hidden state01: ", current_hidden_state.shape)
+                print("current hidden state j: ", current_hidden_state[j].shape)
                 new_hidden_state = cell(rnn_input, current_hidden_state[j])
+                exit()
 
                 # remove (squeeze) first dim before appending to the list
                 # make a list that contains the updated hidden state tensors for each layer in the RNN
                 # Each hidden state tensor has a shape of [batch_size, hidden_state_size].
 
-                #updated_hidden_states.append(hidden_state.squeeze(0))
+                updated_hidden_states.append(new_hidden_state.squeeze(0))
 
                 # For the next layer, use the rnn_output as input
                 # rnn_input = rnn_output
 
                 if isinstance(cell, LSTMCell):
-                    hidden_state = new_hidden_state[:, :self.hidden_state_size]
-                    cell_state = new_hidden_state[:, self.hidden_state_size:]
-                    updated_hidden_states.append(torch.cat((hidden_state, cell_state), dim=1))
+                    #hidden_state = new_hidden_state[:, :self.hidden_state_size]
+                    #cell_state = new_hidden_state[:, self.hidden_state_size:]
+                   # updated_hidden_states.append(torch.cat((hidden_state, cell_state), dim=1))
                     # print("isinstance, hidden_state shape: ", hidden_state.shape)
-                    rnn_output = hidden_state.unsqueeze(0)
+
+                    rnn_output = new_hidden_state[:, :self.hidden_state_size]
                 else:
-                    updated_hidden_states.append(new_hidden_state.squeeze(0))
-                    rnn_output = new_hidden_state.unsqueeze(0)
+                    # updated_hidden_states.append(new_hidden_state.squeeze(0))
+                    rnn_output = new_hidden_state
 
             current_hidden_state = torch.stack(updated_hidden_states, dim=0)
             # print("DIM current hidden stage: ", current_hidden_state.shape)
@@ -370,9 +374,9 @@ class LSTMCell(nn.Module):
         #       The first half of the returned value must represent the new hidden state and the second half
         #       new cell state.
 
-        print("IN LSTM")
+        # print("IN LSTM")
         # print(x.shape)
-        print(hidden_state.shape)
+        # print(hidden_state.shape)
         # print(self.weight.shape)
 
         # splits hidden_state tensor: 1) previous hidden state h_prev; 2) previous memory cell state c_pre

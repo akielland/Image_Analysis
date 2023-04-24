@@ -150,7 +150,7 @@ class RNN(nn.Module):
         embeddings = embedding_layer(input=tokens)  # Should have shape (batch_size, sequence_length, embedding_size)
 
         logits_sequence = []
-        current_hidden_state = initial_hidden_state  #Initial hidden state shape: torch.Size([2, 128, 512])
+        current_hidden_state = initial_hidden_state  # Initial hidden state shape: torch.Size([2, 128, 512])
 
         # TODO: Fetch the first (index 0) embeddings that should go as input to the RNN.
         # Use these tokens in the loop(s) below
@@ -177,7 +177,7 @@ class RNN(nn.Module):
                     # rnn_input = rnn_input.unsqueeze(0)  # to get [1, 128/8, 812]
                     # print("input_tokens.shape j=0: ", rnn_input.shape)
                 else:
-                    rnn_input = rnn_output.squeeze(0)
+                    rnn_input = rnn_output
                 # print("Input to RNN cell:", rnn_input.shape)
 
                 # Here update weightes of the current hidden state and output of the cell
@@ -202,14 +202,14 @@ class RNN(nn.Module):
                     cell_state = new_hidden_state[:, self.hidden_state_size:]
 
                     updated_hidden_states.append(torch.cat((hidden_state, cell_state), dim=1))
-                    rnn_output = hidden_state.unsqueeze(0)
+                    rnn_output = hidden_state
                 else:
                     updated_hidden_states.append(new_hidden_state.squeeze(0))
-                    rnn_output = new_hidden_state.unsqueeze(0)
+                    rnn_output = new_hidden_state
 
             current_hidden_state = torch.stack(updated_hidden_states, dim=0)
             # updated_hidden_states list is stacked into a tensor along dimension 0
-            # gives: [num_rnn_layers, batch_size, hidden_state_size] / [2, 128, 512]
+            # gives sequense of [num_rnn_layers, batch_size, hidden_state_size] / [2, 128, 512]
 
             # output_layer() is an instance of the nn.Linear: calling the forward method of the nn.Linear class on the rnn_output tensor
             # logits_i = output_layer(current_hidden_state[0, :])
